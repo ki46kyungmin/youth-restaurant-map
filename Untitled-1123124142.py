@@ -8,7 +8,6 @@ requests = __import__('requests')
 import uuid
 import os
 
-# Supabase 연결 설정
 @st.cache_resource
 def init_connection():
     url = st.secrets["SUPABASE_URL"]
@@ -16,26 +15,33 @@ def init_connection():
     return create_client(url, key)
 
 supabase = init_connection()
-BUCKET_NAME = "Map image"  # 스토리지 버킷 이름
+BUCKET_NAME = "Map image"
 
-st.title("🗺️ 순천시 청년 맛집 지도")
+st.markdown("""
+    <style>
+    @media (max-width: 768px) {
+        .responsive-title {
+            font-size: 1.6rem !important;
+        }
+    }
+    </style>
+    <h1 class="responsive-title" style="font-size: 2.2rem; font-weight: bold; margin-bottom: 20px;">
+        🗺️ 순천시 청년 맛집 지도
+    </h1>
+""", unsafe_allow_html=True)
 
 tab1, tab2, tab3 = st.tabs(["청년맛집 제보하기", "청년맛집 지도보기", "관리자 페이지"])
 
-# Supabase Storage에 이미지 업로드 함수 (한글/특수문자 파일명 에러 방지용 UUID 적용)
 def upload_image_to_supabase(file, store_name):
     try:
         file_bytes = file.getvalue()
-        
-        # 파일 확장자 추출 (.jpg, .png 등)
         file_extension = os.path.splitext(file.name)[1]
         if not file_extension:
             file_extension = ".jpg"
             
-        # 한글 및 특수문자 에러를 막기 위해 고유한 UUID 영어 파일명으로 변환
         safe_filename = f"{uuid.uuid4()}{file_extension}"
         
-        response = supabase.storage.from_(BUCKET_NAME).upload(
+        supabase.storage.from_(BUCKET_NAME).upload(
             path=safe_filename,
             file=file_bytes,
             file_options={"content-type": file.type, "upsert": "true"}
@@ -47,7 +53,6 @@ def upload_image_to_supabase(file, store_name):
         st.error(f"서버 사진 업로드 중 오류 발생: {e}")
         return None
 
-# 웹 URL 이미지를 Base64로 변환하여 팝업 깨짐 방지
 def get_web_image_base64(image_url):
     try:
         response = requests.get(image_url)
@@ -65,7 +70,6 @@ def load_data():
     else:
         return pd.DataFrame(columns=["id", "name", "address", "lat", "lng", "review", "images", "status"])
 
-# 1. 사용자 제보 탭
 with tab1:
     st.subheader("나만의 청년 맛집을 제보해주세요!")
     st.write("💡 지도를 움직여 원하는 위치를 클릭하면 위치가 저장됩니다.")
@@ -75,7 +79,6 @@ with tab1:
     if 'selected_lng' not in st.session_state:
         st.session_state.selected_lng = 127.4875
 
-    # 선택된 좌표를 중심으로 가볍고 빠르게 지도를 렌더링합니다.
     m_click = folium.Map(
         location=[st.session_state.selected_lat, st.session_state.selected_lng], 
         zoom_start=14,
@@ -87,7 +90,6 @@ with tab1:
         icon=folium.Icon(color="blue", icon="info-sign")
     ).add_to(m_click)
     
-    # 💡 성능 최적화: 클릭 이벤트("last_clicked")만 단독으로 받아오도록 변경하여 씹힘 및 버벅임 완전 해소
     map_data = st_folium(
         m_click, 
         use_container_width=True,
@@ -96,7 +98,6 @@ with tab1:
         returned_objects=["last_clicked", "zoom"]
     )
 
-    # 지도를 클릭했을 때만 즉시 좌표를 갱신하고 화면을 다시 그려 마커를 옮깁니다.
     if map_data and map_data.get("last_clicked"):
         clicked_lat = map_data["last_clicked"]["lat"]
         clicked_lng = map_data["last_clicked"]["lng"]
@@ -151,7 +152,6 @@ with tab1:
                 
                 st.success(f"'{store_name}' 제보가 완료되었습니다! 관리자 검토 후 등록됩니다.")
 
-# 2. 지도 보기 탭
 with tab2:
     st.subheader("📍 순천시 청년 맛집 지도")
     st.write("순천시 청년들의 추천을 받은 맛집들입니다!")
@@ -199,7 +199,6 @@ with tab2:
             
     st_folium(m, use_container_width=True, height=500, key="view_map", returned_objects=[])
 
-# 3. 관리자 페이지 탭
 with tab3:
     st.subheader("🔐 관리자 검토 페이지")
     password = st.text_input("관리자 비밀번호를 입력하세요", type="password", key="admin_pw")
