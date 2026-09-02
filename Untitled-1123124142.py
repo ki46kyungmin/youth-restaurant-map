@@ -90,10 +90,10 @@ with tab1:
     # 💡 성능 최적화: 클릭 이벤트("last_clicked")만 단독으로 받아오도록 변경하여 씹힘 및 버벅임 완전 해소
     map_data = st_folium(
         m_click, 
-        width=700, 
+        use_container_width=True,
         height=450, 
         key="submission_map",
-        returned_objects=["last_clicked"]
+        returned_objects=["last_clicked", "zoom"]
     )
 
     # 지도를 클릭했을 때만 즉시 좌표를 갱신하고 화면을 다시 그려 마커를 옮깁니다.
@@ -197,7 +197,7 @@ with tab2:
                 icon=folium.Icon(color="red", icon="cutlery", prefix="fa")
             ).add_to(m)
             
-    st_folium(m, width=700, height=500, key="view_map", returned_objects=[])
+    st_folium(m, use_container_width=True, height=500, key="view_map", returned_objects=[])
 
 # 3. 관리자 페이지 탭
 with tab3:
