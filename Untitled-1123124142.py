@@ -24,23 +24,6 @@ st.markdown("""
             font-size: 1.6rem !important;
         }
     }
-    .floating-banner {
-        position: fixed;
-        bottom: 20px;
-        left: 50%;
-        transform: translateX(-50%);
-        background-color: #ff4b4b;
-        color: white;
-        padding: 10px 20px;
-        border-radius: 30px;
-        font-weight: bold;
-        font-size: 0.9rem;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-        z-index: 9999;
-        text-align: center;
-        width: 90%;
-        max-width: 400px;
-    }
     </style>
     <h1 class="responsive-title" style="font-size: 2.2rem; font-weight: bold; margin-bottom: 20px;">
         🗺️ 순천시 청년 맛집 지도
@@ -91,12 +74,6 @@ with tab1:
     st.subheader("나만의 청년 맛집을 제보해주세요!")
     st.write("💡 지도를 움직여 원하는 위치를 클릭하면 위치가 저장됩니다.")
 
-    st.markdown("""
-        <div class="floating-banner">
-            👇 지도를 클릭한 뒤, <b>아래로 스크롤하여 정보를 입력</b>해주세요!
-        </div>
-    """, unsafe_allow_html=True)
-
     if 'selected_lat' not in st.session_state:
         st.session_state.selected_lat = 34.9506
     if 'selected_lng' not in st.session_state:
@@ -113,10 +90,11 @@ with tab1:
         icon=folium.Icon(color="blue", icon="info-sign")
     ).add_to(m_click)
     
+    # 모바일에서 한눈에 보이도록 지도 높이를 330으로 축소
     map_data = st_folium(
         m_click, 
         use_container_width=True,
-        height=450, 
+        height=330, 
         key="submission_map",
         returned_objects=["last_clicked", "zoom"]
     )
@@ -220,7 +198,7 @@ with tab2:
                 icon=folium.Icon(color="red", icon="cutlery", prefix="fa")
             ).add_to(m)
             
-    st_folium(m, use_container_width=True, height=500, key="view_map", returned_objects=[])
+    st_folium(m, use_container_width=True, height=450, key="view_map", returned_objects=[])
 
 with tab3:
     st.subheader("🔐 관리자 검토 페이지")
