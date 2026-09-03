@@ -5,6 +5,7 @@ from streamlit_folium import st_folium
 from supabase import create_client
 import uuid
 import os
+import time
 
 @st.cache_resource
 def init_connection():
@@ -14,6 +15,15 @@ def init_connection():
 
 supabase = init_connection()
 BUCKET_NAME = "Map image"
+
+if 'rotation_active' not in st.session_state:
+    st.session_state.rotation_active = False
+if 'rotation_interval' not in st.session_state:
+    st.session_state.rotation_interval = 3
+if 'rotation_index' not in st.session_state:
+    st.session_state.rotation_index = 0
+if 'active_tab_index' not in st.session_state:
+    st.session_state.active_tab_index = 0
 
 st.markdown("""
     <style>
@@ -28,7 +38,16 @@ st.markdown("""
     </h1>
 """, unsafe_allow_html=True)
 
-tab1, tab2, tab3 = st.tabs(["청년 공간 제보하기", "청년 공간 지도보기", "관리자 페이지"])
+# 탭 상태가 새로고침 시 풀리지 않도록 세션 인덱스 연동
+tab_titles = ["청년 공간 제보하기", "청년 공간 지도보기", "관리자 페이지"]
+selected_tab = st.radio("메뉴", tab_titles, index=st.session_state.active_tab_index, horizontal=True, label_visibility="collapsed")
+
+if selected_tab == "청년 공간 제보하기":
+    st.session_state.active_tab_index = 0
+elif selected_tab == "청년 공간 지도보기":
+    st.session_state.active_tab_index = 1
+elif selected_tab == "관리자 페이지":
+    st.session_state.active_tab_index = 2
 
 def upload_image_to_supabase(file, store_name):
     try:
@@ -51,7 +70,6 @@ def upload_image_to_supabase(file, store_name):
         st.error(f"서버 사진 업로드 중 오류 발생: {e}")
         return None
 
-# [최적화 1] 데이터 로딩을 캐싱하여 매번 서버를 조회하지 않고 빠르게 불러오기 (TTL 60초 설정)
 @st.cache_data(ttl=60)
 def load_data():
     response = supabase.table("restaurants").select("*").execute()
@@ -60,7 +78,6 @@ def load_data():
     else:
         return pd.DataFrame(columns=["id", "name", "address", "lat", "lng", "review", "images", "status", "category"])
 
-# 카테고리별 마커 아이콘 설정
 CATEGORY_ICONS = {
     "맛집": {"color": "red", "icon": "cutlery"},
     "공유공간": {"color": "blue", "icon": "users"},
@@ -68,7 +85,7 @@ CATEGORY_ICONS = {
     "추천관광지": {"color": "green", "icon": "tree"}
 }
 
-with tab1:
+if selected_tab == "청년 공간 제보하기":
     st.subheader("나만의 청년 공간/맛집을 제보해주세요!")
     st.write("💡 지도를 움직여 원하는 위치를 클릭하면 위치가 저장됩니다.")
 
@@ -150,11 +167,10 @@ with tab1:
                     "category": store_category
                 }).execute()
                 
-                # 데이터가 추가되었으므로 캐시를 비워 최신 데이터가 반영되도록 함
                 st.cache_data.clear()
                 st.success(f"'{store_name}' 제보가 완료되었습니다! 관리자 검토 후 등록됩니다.")
 
-with tab2:
+elif selected_tab == "청년 공간 지도보기":
     st.subheader("📍 순천시 청년 공간 및 맛집 지도")
     st.write("순천시 청년들이 추천하는 다양한 공간들을 확인해보세요!")
     
@@ -172,9 +188,11 @@ with tab2:
         total_count = len(approved_df)
         cat_counts = approved_df['category'].value_counts()
         
+        rotation_status_text = "🟢 작동 중 (실시간 순환 로테이션 중)" if st.session_state.rotation_active else "⚪ 정지됨"
+        
         st.markdown(f"""
             <div style="background-color: #f8f9fa; padding: 10px 15px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #e9ecef;">
-                <b>📊 등록된 장소 현황</b><br>
+                <b>📊 등록된 장소 현황</b> &nbsp;|&nbsp; <b>순환 상태:</b> <span style="color: {'green' if st.session_state.rotation_active else 'gray'}; font-weight: bold;">{rotation_status_text}</span><br>
                 전체: <b>{total_count}개</b> | 
                 🍽️ 맛집: <b>{cat_counts.get('맛집', 0)}개</b> | 
                 👥 공유공간: <b>{cat_counts.get('공유공간', 0)}개</b> | 
@@ -183,12 +201,18 @@ with tab2:
             </div>
         """, unsafe_allow_html=True)
 
-        selected_filter = st.selectbox("🔍 카테고리 필터", ["전체보기", "맛집", "공유공간", "문화공간", "추천관광지"])
+        categories_list = ["맛집", "공유공간", "문화공간", "추천관광지"]
         
-        if selected_filter != "전체보기":
-            map_df = approved_df[approved_df['category'] == selected_filter]
+        if st.session_state.rotation_active:
+            current_cat = categories_list[st.session_state.rotation_index % len(categories_list)]
+            st.info(f"🔄 자동 순환 중: **[{current_cat}]** 카테고리를 표시하고 있습니다. ({st.session_state.rotation_interval}초 후 다음으로 전환)")
+            map_df = approved_df[approved_df['category'] == current_cat]
         else:
-            map_df = approved_df
+            selected_filter = st.selectbox("🔍 카테고리 필터", ["전체보기", "맛집", "공유공간", "문화공간", "추천관광지"])
+            if selected_filter != "전체보기":
+                map_df = approved_df[approved_df['category'] == selected_filter]
+            else:
+                map_df = approved_df
     else:
         map_df = pd.DataFrame()
         st.markdown("""
@@ -201,16 +225,13 @@ with tab2:
     suncheon_lat, suncheon_lng = 34.9506, 127.4875
     m = folium.Map(location=[suncheon_lat, suncheon_lng], zoom_start=13, prefer_canvas=True)
     
-    if map_df.empty:
-        st.info("조건에 해당하는 장소가 없습니다.")
-    else:
+    if not map_df.empty:
         for _, row in map_df.iterrows():
             img_tag = ""
             imgs = str(row['images'])
             if imgs != "없음" and imgs != "nan" and imgs != "":
                 urls = imgs.split(",")
                 if urls and urls[0]:
-                    # [최적화 2] Base64 변환 함수를 거치지 않고 Supabase 이미지 URL을 직접 사용 (로딩 속도 대폭 개선)
                     img_tag = f'<img src="{urls[0]}" style="width: 80px; height: 80px; object-fit: cover; border-radius: 6px; margin-left: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.2);">'
 
             cat_name = row.get('category', '맛집')
@@ -235,15 +256,46 @@ with tab2:
                 tooltip=f"[{cat_name}] {row['name']}",
                 icon=folium.Icon(color=icon_info["color"], icon=icon_info["icon"], prefix="fa")
             ).add_to(m)
-            
-    st_folium(m, use_container_width=True, height=500, key="view_map", returned_objects=[])
 
-with tab3:
+    st_folium(m, use_container_width=True, height=500, key="view_map")
+
+    if st.session_state.rotation_active and not approved_df.empty:
+        time.sleep(st.session_state.rotation_interval)
+        st.session_state.rotation_index += 1
+        st.rerun()
+
+elif selected_tab == "관리자 페이지":
     st.subheader("🔐 관리자 검토 페이지")
     password = st.text_input("관리자 비밀번호를 입력하세요", type="password", key="admin_pw")
     
     if password == "6230":
         st.success("관리자 로그인 성공!")
+        
+        st.markdown("---")
+        st.subheader("⚙️ 지도 카테고리 실시간 순환(로테이션) 설정")
+        st.write("지도의 마커들이 일정 시간마다 카테고리별로 자동 전환되는 로테이션 기능을 제어할 수 있습니다.")
+        
+        col_r1, col_r2 = st.columns(2)
+        with col_r1:
+            new_interval = st.slider("순환 주기 (초)", min_value=1, max_value=10, value=st.session_state.rotation_interval)
+            if new_interval != st.session_state.rotation_interval:
+                st.session_state.rotation_interval = new_interval
+        
+        with col_r2:
+            st.write("### 제어 스위치")
+            col_b1, col_b2 = st.columns(2)
+            with col_b1:
+                if st.button("▶ 순환 시작", use_container_width=True):
+                    st.session_state.rotation_active = True
+                    st.session_state.rotation_index = 0
+                    st.success("로테이션이 시작되었습니다! 지도 탭을 확인하세요.")
+                    st.rerun()
+            with col_b2:
+                if st.button("⏸ 정지하기", use_container_width=True):
+                    st.session_state.rotation_active = False
+                    st.warning("로테이션이 정지되었습니다.")
+                    st.rerun()
+
         df = load_data()
         
         if df.empty:
@@ -290,13 +342,13 @@ with tab3:
                                     "lng": new_lng,
                                     "status": "Approved"
                                 }).eq("id", row_id).execute()
-                                st.cache_data.clear() # 데이터 변경 시 캐시 초기화
+                                st.cache_data.clear()
                                 st.success(f"'{row['name']}' 승인 완료!")
                                 st.rerun()
                                 
                             if st.button("❌ 반려/삭제", key=f"p_del_{row_id}"):
                                 supabase.table("restaurants").delete().eq("id", row_id).execute()
-                                st.cache_data.clear() # 데이터 변경 시 캐시 초기화
+                                st.cache_data.clear()
                                 st.warning("제보가 삭제되었습니다.")
                                 st.rerun()
                         st.divider()
@@ -317,7 +369,7 @@ with tab3:
                         with col2:
                             if st.button("등록 취소(삭제)", key=f"a_del_{row_id}"):
                                 supabase.table("restaurants").delete().eq("id", row_id).execute()
-                                st.cache_data.clear() # 데이터 변경 시 캐시 초기화
+                                st.cache_data.clear()
                                 st.warning("등록이 취소되었습니다.")
                                 st.rerun()
                         st.divider()
