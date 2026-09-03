@@ -1,1 +1,5 @@
 .streamlit/
+app_desktop.py
+*.spec
+build/
+dist/
