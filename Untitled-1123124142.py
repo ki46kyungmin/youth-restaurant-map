@@ -1,10 +1,8 @@
 import streamlit as st
 import pandas as pd
-import base64
 import folium
 from streamlit_folium import st_folium
 from supabase import create_client
-requests = __import__('requests')
 import uuid
 import os
 
@@ -26,11 +24,11 @@ st.markdown("""
     }
     </style>
     <h1 class="responsive-title" style="font-size: 2.2rem; font-weight: bold; margin-bottom: 20px;">
-        🗺️ 순천시 청년 맛집 지도
+        🗺️ 순천시 청년 공간 및 맛집 지도
     </h1>
 """, unsafe_allow_html=True)
 
-tab1, tab2, tab3 = st.tabs(["청년맛집 제보하기", "청년맛집 지도보기", "관리자 페이지"])
+tab1, tab2, tab3 = st.tabs(["청년 공간 제보하기", "청년 공간 지도보기", "관리자 페이지"])
 
 def upload_image_to_supabase(file, store_name):
     try:
@@ -53,25 +51,25 @@ def upload_image_to_supabase(file, store_name):
         st.error(f"서버 사진 업로드 중 오류 발생: {e}")
         return None
 
-def get_web_image_base64(image_url):
-    try:
-        response = requests.get(image_url)
-        if response.status_code == 200:
-            encoded = base64.b64encode(response.content).decode("utf-8")
-            return f"data:image/jpeg;base64,{encoded}"
-    except:
-        pass
-    return ""
-
+# [최적화 1] 데이터 로딩을 캐싱하여 매번 서버를 조회하지 않고 빠르게 불러오기 (TTL 60초 설정)
+@st.cache_data(ttl=60)
 def load_data():
     response = supabase.table("restaurants").select("*").execute()
     if response.data:
         return pd.DataFrame(response.data)
     else:
-        return pd.DataFrame(columns=["id", "name", "address", "lat", "lng", "review", "images", "status"])
+        return pd.DataFrame(columns=["id", "name", "address", "lat", "lng", "review", "images", "status", "category"])
+
+# 카테고리별 마커 아이콘 설정
+CATEGORY_ICONS = {
+    "맛집": {"color": "red", "icon": "cutlery"},
+    "공유공간": {"color": "blue", "icon": "users"},
+    "문화공간": {"color": "purple", "icon": "paint-brush"},
+    "추천관광지": {"color": "green", "icon": "tree"}
+}
 
 with tab1:
-    st.subheader("나만의 청년 맛집을 제보해주세요!")
+    st.subheader("나만의 청년 공간/맛집을 제보해주세요!")
     st.write("💡 지도를 움직여 원하는 위치를 클릭하면 위치가 저장됩니다.")
 
     if 'selected_lat' not in st.session_state:
@@ -86,11 +84,10 @@ with tab1:
     )
     folium.Marker(
         [st.session_state.selected_lat, st.session_state.selected_lng],
-        popup="선택된 가게 위치",
-        icon=folium.Icon(color="blue", icon="info-sign")
+        popup="선택된 위치",
+        icon=folium.Icon(color="orange", icon="info-sign")
     ).add_to(m_click)
     
-    # 모바일에서 한눈에 보이도록 지도 높이를 330으로 축소
     map_data = st_folium(
         m_click, 
         use_container_width=True,
@@ -110,12 +107,13 @@ with tab1:
     st.success(f"📌 현재 선택된 위치 (`{st.session_state.selected_lat:.6f}`, `{st.session_state.selected_lng:.6f}`)")
 
     with st.form("user_form"):
-        store_name = st.text_input("가게 이름")
-        store_address = st.text_input("가게 주소 (예: 순천시 장명로 30)")
+        store_category = st.selectbox("카테고리 선택", ["맛집", "공유공간", "문화공간", "추천관광지"])
+        store_name = st.text_input("장소(가게) 이름")
+        store_address = st.text_input("주소 (예: 순천시 장명로 30)")
         store_review = st.text_area("추천 이유 / 리뷰 (선택)")
         
         uploaded_files = st.file_uploader(
-            "가게 사진 첨부 (선택, 최대 3장)", 
+            "사진 첨부 (선택, 최대 3장)", 
             type=["png", "jpg", "jpeg"], 
             accept_multiple_files=True
         )
@@ -124,7 +122,7 @@ with tab1:
         
         if submitted:
             if not store_name:
-                st.error("가게 이름은 필수 입력입니다!")
+                st.error("장소 이름은 필수 입력입니다!")
             elif uploaded_files and len(uploaded_files) > 3:
                 st.error("사진은 최대 3장까지만 업로드할 수 있습니다!")
             else:
@@ -148,39 +146,79 @@ with tab1:
                     "lng": lng,
                     "review": review_text,
                     "images": image_str,
-                    "status": "Pending"
+                    "status": "Pending",
+                    "category": store_category
                 }).execute()
                 
+                # 데이터가 추가되었으므로 캐시를 비워 최신 데이터가 반영되도록 함
+                st.cache_data.clear()
                 st.success(f"'{store_name}' 제보가 완료되었습니다! 관리자 검토 후 등록됩니다.")
 
 with tab2:
-    st.subheader("📍 순천시 청년 맛집 지도")
-    st.write("순천시 청년들의 추천을 받은 맛집들입니다!")
+    st.subheader("📍 순천시 청년 공간 및 맛집 지도")
+    st.write("순천시 청년들이 추천하는 다양한 공간들을 확인해보세요!")
     
     df = load_data()
     if not df.empty and 'status' in df.columns:
-        approved_df = df[df['status'] == 'Approved']
+        approved_df = df[df['status'] == 'Approved'].copy()
     else:
         approved_df = pd.DataFrame()
     
+    if not approved_df.empty:
+        if 'category' not in approved_df.columns:
+            approved_df['category'] = '맛집'
+        approved_df['category'] = approved_df['category'].fillna('맛집')
+
+        total_count = len(approved_df)
+        cat_counts = approved_df['category'].value_counts()
+        
+        st.markdown(f"""
+            <div style="background-color: #f8f9fa; padding: 10px 15px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #e9ecef;">
+                <b>📊 등록된 장소 현황</b><br>
+                전체: <b>{total_count}개</b> | 
+                🍽️ 맛집: <b>{cat_counts.get('맛집', 0)}개</b> | 
+                👥 공유공간: <b>{cat_counts.get('공유공간', 0)}개</b> | 
+                🎨 문화공간: <b>{cat_counts.get('문화공간', 0)}개</b> | 
+                🌳 추천관광지: <b>{cat_counts.get('추천관광지', 0)}개</b>
+            </div>
+        """, unsafe_allow_html=True)
+
+        selected_filter = st.selectbox("🔍 카테고리 필터", ["전체보기", "맛집", "공유공간", "문화공간", "추천관광지"])
+        
+        if selected_filter != "전체보기":
+            map_df = approved_df[approved_df['category'] == selected_filter]
+        else:
+            map_df = approved_df
+    else:
+        map_df = pd.DataFrame()
+        st.markdown("""
+            <div style="background-color: #f8f9fa; padding: 10px 15px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #e9ecef;">
+                <b>📊 등록된 장소 현황</b> : 전체 0개 (등록된 장소 없음)
+            </div>
+        """, unsafe_allow_html=True)
+        st.selectbox("🔍 카테고리 필터", ["전체보기", "맛집", "공유공간", "문화공간", "추천관광지"])
+
     suncheon_lat, suncheon_lng = 34.9506, 127.4875
     m = folium.Map(location=[suncheon_lat, suncheon_lng], zoom_start=13, prefer_canvas=True)
     
-    if approved_df.empty:
-        st.info("현재 지도에 등록된 승인 맛집이 없습니다. 관리자 페이지에서 제보를 승인해주세요!")
+    if map_df.empty:
+        st.info("조건에 해당하는 장소가 없습니다.")
     else:
-        for _, row in approved_df.iterrows():
+        for _, row in map_df.iterrows():
             img_tag = ""
             imgs = str(row['images'])
             if imgs != "없음" and imgs != "nan" and imgs != "":
                 urls = imgs.split(",")
-                if urls:
-                    b64_img = get_web_image_base64(urls[0])
-                    if b64_img:
-                        img_tag = f'<img src="{b64_img}" style="width: 80px; height: 80px; object-fit: cover; border-radius: 6px; margin-left: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.2);">'
+                if urls and urls[0]:
+                    # [최적화 2] Base64 변환 함수를 거치지 않고 Supabase 이미지 URL을 직접 사용 (로딩 속도 대폭 개선)
+                    img_tag = f'<img src="{urls[0]}" style="width: 80px; height: 80px; object-fit: cover; border-radius: 6px; margin-left: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.2);">'
+
+            cat_name = row.get('category', '맛집')
+            icon_info = CATEGORY_ICONS.get(cat_name, {"color": "red", "icon": "cutlery"})
 
             popup_html = f"""
             <div style="width: 280px; font-family: 'Malgun Gothic', sans-serif; padding: 4px;">
+              <div style="margin-bottom: 4px;"><span style="background-color: #eee; padding: 2px 6px; font-size: 11px; border-radius: 4px; font-weight: bold;">[{cat_name}]</span></div>
               <div style="display: flex; justify-content: space-between; align-items: center;">
                 <div style="flex-grow: 1; padding-right: 6px;">
                   <h4 style="margin: 0 0 6px 0; font-size: 15px; font-weight: bold; color: #222;">{row['name']}</h4>
@@ -194,11 +232,11 @@ with tab2:
             folium.Marker(
                 [float(row['lat']), float(row['lng'])],
                 popup=popup,
-                tooltip=row['name'],
-                icon=folium.Icon(color="red", icon="cutlery", prefix="fa")
+                tooltip=f"[{cat_name}] {row['name']}",
+                icon=folium.Icon(color=icon_info["color"], icon=icon_info["icon"], prefix="fa")
             ).add_to(m)
             
-    st_folium(m, use_container_width=True, height=450, key="view_map", returned_objects=[])
+    st_folium(m, use_container_width=True, height=500, key="view_map", returned_objects=[])
 
 with tab3:
     st.subheader("🔐 관리자 검토 페이지")
@@ -211,6 +249,9 @@ with tab3:
         if df.empty:
             st.write("저장된 제보가 없습니다.")
         else:
+            if 'category' not in df.columns:
+                df['category'] = '맛집'
+            
             pending_df = df[df['status'] == 'Pending']
             approved_df = df[df['status'] == 'Approved']
             
@@ -225,7 +266,7 @@ with tab3:
                     with st.container():
                         col1, col2 = st.columns([3, 2])
                         with col1:
-                            st.markdown(f"**{row['name']}**")
+                            st.markdown(f"**[{row['category']}] {row['name']}**")
                             st.write(f"주소: {row['address']}")
                             st.write(f"지정된 위치 (위도: {row['lat']:.6f}, 경도: {row['lng']:.6f})")
                             st.info(f"💬 추천 이유: {row['review']}")
@@ -249,31 +290,34 @@ with tab3:
                                     "lng": new_lng,
                                     "status": "Approved"
                                 }).eq("id", row_id).execute()
+                                st.cache_data.clear() # 데이터 변경 시 캐시 초기화
                                 st.success(f"'{row['name']}' 승인 완료!")
                                 st.rerun()
                                 
                             if st.button("❌ 반려/삭제", key=f"p_del_{row_id}"):
                                 supabase.table("restaurants").delete().eq("id", row_id).execute()
+                                st.cache_data.clear() # 데이터 변경 시 캐시 초기화
                                 st.warning("제보가 삭제되었습니다.")
                                 st.rerun()
                         st.divider()
                         
             st.markdown("---")
-            st.write(f"### ✅ 승인 완료된 맛집 목록 ({len(approved_df)}건)")
+            st.write(f"### ✅ 승인 완료된 공간/맛집 목록 ({len(approved_df)}건)")
             
             if approved_df.empty:
-                st.write("승인된 맛집이 없습니다.")
+                st.write("승인된 항목이 없습니다.")
             else:
                 for idx, row in approved_df.iterrows():
                     row_id = row['id']
                     with st.container():
                         col1, col2 = st.columns([4, 1])
                         with col1:
-                            st.markdown(f"**{row['name']}** (등록 완료됨)")
+                            st.markdown(f"**[{row['category']}] {row['name']}** (등록 완료됨)")
                             st.write(f"주소: {row['address']} (위도: {row['lat']}, 경도: {row['lng']})")
                         with col2:
                             if st.button("등록 취소(삭제)", key=f"a_del_{row_id}"):
                                 supabase.table("restaurants").delete().eq("id", row_id).execute()
+                                st.cache_data.clear() # 데이터 변경 시 캐시 초기화
                                 st.warning("등록이 취소되었습니다.")
                                 st.rerun()
                         st.divider()
