@@ -121,7 +121,7 @@ if selected_tab == "청년 공간 제보하기":
             st.session_state.selected_lng = clicked_lng
             st.rerun()
 
-    st.success(f"📌 현재 선택된 위치 (`{st.session_state.selected_lat:.6f}`, `{st.session_state.selected_lng:.6f}`)")
+    # st.success(f"📌 현재 선택된 위치 (`{st.session_state.selected_lat:.6f}`, `{st.session_state.selected_lng:.6f}`)")
 
     with st.form("user_form"):
         store_category = st.selectbox("카테고리 선택", ["맛집", "공유공간", "문화공간", "추천관광지"])
@@ -192,7 +192,7 @@ elif selected_tab == "청년 공간 지도보기":
         
         st.markdown(f"""
             <div style="background-color: #f8f9fa; padding: 10px 15px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #e9ecef;">
-                <b>📊 등록된 장소 현황</b> &nbsp;|&nbsp; <b>순환 상태:</b> <span style="color: {'green' if st.session_state.rotation_active else 'gray'}; font-weight: bold;">{rotation_status_text}</span><br>
+                <b>📊 등록된 장소 현황</b> <br>
                 전체: <b>{total_count}개</b> | 
                 🍽️ 맛집: <b>{cat_counts.get('맛집', 0)}개</b> | 
                 👥 공유공간: <b>{cat_counts.get('공유공간', 0)}개</b> | 
@@ -257,7 +257,7 @@ elif selected_tab == "청년 공간 지도보기":
                 icon=folium.Icon(color=icon_info["color"], icon=icon_info["icon"], prefix="fa")
             ).add_to(m)
 
-    st_folium(m, use_container_width=True, height=500, key="view_map")
+    st_folium(m, use_container_width=True, height=500, key="view_map", returned_objects=[])
 
     if st.session_state.rotation_active and not approved_df.empty:
         time.sleep(st.session_state.rotation_interval)
